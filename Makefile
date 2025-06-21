@@ -15,12 +15,19 @@ help:
 	@echo "Code Quality:"
 	@echo "  lint           - Run linter with auto-installation if needed"
 	@echo "  lint-fix       - Run linter with automatic fixes"
+	@echo "  lint-testing   - Check test patterns and practices (httprr, etc.)"
+	@echo "  lint-testing-fix - Check and attempt to fix test patterns"
+	@echo "  lint-architecture - Check architectural rules and patterns"
 	@echo ""
 	@echo "Other:"
 	@echo "  build-examples - Build all example projects to verify they compile"
 	@echo "  docs           - Generate documentation"
 	@echo "  clean          - Clean lint cache"
 	@echo "  help           - Show this help message"
+	@echo ""
+	@echo "Git Hooks:"
+	@echo "  pre-push       - Run lint and fast tests (suitable for git pre-push hook)"
+	@echo "  install-git-hooks  - Install git hooks (sets up pre-push hook)"
 
 .PHONY: test
 test:
@@ -38,7 +45,7 @@ lint-exp:
 
 .PHONY: lint-fix
 lint-fix:
-	golangci-lint run --fix --skip-dirs=./exp ./...
+	golangci-lint run --fix ./...
 
 .PHONY: lint-all
 lint-all:
@@ -76,13 +83,15 @@ test-cover:
 .PHONY: test-record
 test-record:
 	@echo "Re-recording HTTP interactions for all packages using httprr..."
+	@echo "Note: Running with limited parallelism to avoid API rate limits"
 	PACKAGES=$$(go run ./internal/devtools/rrtool list-packages -format=paths) && \
 	echo "Recording HTTP interactions for packages:" && \
 	echo "$$PACKAGES" | tr ' ' '\n' | sed 's/^/  /' && \
 	echo "" && \
 	env DOCKER_HOST=$$(docker context inspect -f='{{.Endpoints.docker.Host}}' 2>/dev/null || echo "unix:///var/run/docker.sock") \
 	TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/var/run/docker.sock" \
-	go test $$PACKAGES -httprecord=. -httprecord-delay=1s -timeout=300s
+	go test $$PACKAGES -httprecord=. -httprecord-delay=1s -p 2 -parallel=2 -timeout=300s
+
 
 .PHONY: run-pkgsite
 run-pkgsite:
@@ -124,3 +133,22 @@ lint-prepush:
 .PHONY: lint-prepush-fix
 lint-prepush-fix:
 	go run ./internal/devtools/lint -prepush -fix -v
+
+.PHONY: lint-testing
+lint-testing:
+	go run ./internal/devtools/lint -testing -v
+
+.PHONY: lint-testing-fix
+lint-testing-fix:
+	go run ./internal/devtools/lint -testing -fix -v
+
+.PHONY: pre-push
+pre-push:
+	@echo "Running pre-push checks..."
+	@$(MAKE) lint
+	@go test -short ./...
+	@echo "✅ Pre-push checks passed!"
+
+.PHONY: install-git-hooks
+install-git-hooks:
+	@./internal/devtools/git-hooks/install-git-hooks.sh
